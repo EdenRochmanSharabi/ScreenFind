@@ -27,9 +27,10 @@ final class OverlayContentView: NSView {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
 
         // 1. Draw the captured screenshot (frozen state).
-        if let image = screenshotImage {
-            context.draw(image, in: bounds)
-        }
+        //    CGContext.draw(image:in:) always renders bottom-to-top, but this view
+        //    is flipped (origin at top-left). We must counter-flip the context so
+        //    the screenshot appears right-side-up.
+        drawScreenshot(in: context)
 
         // 2. Draw semi-transparent black dim over the entire view.
         context.setFillColor(NSColor.black.withAlphaComponent(0.5).cgColor)
@@ -44,14 +45,22 @@ final class OverlayContentView: NSView {
             // the screenshot so the matched region appears at full brightness.
             context.saveGState()
             context.clip(to: localRect.insetBy(dx: -4, dy: -4))
-            if let image = screenshotImage {
-                context.draw(image, in: bounds)
-            }
+            drawScreenshot(in: context)
             context.restoreGState()
 
             // Draw the glow highlight border on top.
             HighlightRenderer.drawHighlight(in: context, rect: localRect, isCurrent: isCurrent)
         }
+    }
+
+    /// Draws the screenshot CGImage right-side-up in a flipped view context.
+    private func drawScreenshot(in context: CGContext) {
+        guard let image = screenshotImage else { return }
+        context.saveGState()
+        context.translateBy(x: 0, y: bounds.height)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(image, in: CGRect(origin: .zero, size: bounds.size))
+        context.restoreGState()
     }
 
     // MARK: - Coordinate conversion

@@ -5,6 +5,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var overlayCoordinator: OverlayCoordinator?  // needs to be accessible from ScreenFindApp
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Hide from Dock (LSUIElement equivalent for SPM executables)
+        NSApp.setActivationPolicy(.accessory)
+
         let coordinator = OverlayCoordinator()
         self.overlayCoordinator = coordinator
 

@@ -40,7 +40,7 @@ final class OverlayWindowController {
             window.hasShadow = false
             window.contentView = contentView
 
-            window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
 
             overlayWindows[capture.displayID] = window
             contentViews[capture.displayID] = contentView
