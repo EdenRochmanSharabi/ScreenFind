@@ -17,6 +17,10 @@ struct MenuBarView: View {
             }
             .keyboardShortcut(",", modifiers: .command)
 
+            Button("Permissions...") {
+                openPermissionsWindow()
+            }
+
             Divider()
 
             Button("Quit") {
@@ -51,10 +55,33 @@ struct MenuBarView: View {
         // Hold a reference so the window isn't deallocated
         SettingsWindowController.shared.window = window
     }
+
+    private func openPermissionsWindow() {
+        let permissionsView = PermissionOnboardingView()
+        let hostingController = NSHostingController(rootView: permissionsView)
+
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = "ScreenFind Permissions"
+        window.styleMask = [.titled, .closable]
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+
+        // Bring the app to the foreground
+        NSApp.activate()
+
+        // Hold a reference so the window isn't deallocated
+        PermissionsWindowController.shared.window = window
+    }
 }
 
 /// Holds a strong reference to the settings window so it stays alive.
 final class SettingsWindowController {
     static let shared = SettingsWindowController()
+    var window: NSWindow?
+}
+
+/// Holds a strong reference to the permissions window so it stays alive.
+final class PermissionsWindowController {
+    static let shared = PermissionsWindowController()
     var window: NSWindow?
 }

@@ -1,6 +1,7 @@
 import Cocoa
 import Combine
 import SwiftUI
+import ApplicationServices
 
 @MainActor
 final class OverlayCoordinator: ObservableObject {
@@ -11,12 +12,15 @@ final class OverlayCoordinator: ObservableObject {
     private let captureService = ScreenCaptureService()
     private let ocrService = OCRService()
     private let searchEngine = SearchEngine()
+    private let accessibilityService = AccessibilityService()
     let matchNavigator = MatchNavigator()
 
     private var overlayController = OverlayWindowController()
     private var searchBarController: SearchBarWindowController?
+    private var badgeController = OffScreenBadgeWindowController()
 
     private var captures: [ScreenCapture] = []
+    private var offScreenResult: OffScreenResult?
     private var cancellables = Set<AnyCancellable>()
 
     /// Local event monitor used to intercept ESC while the overlay is active.
@@ -87,8 +91,10 @@ final class OverlayCoordinator: ObservableObject {
         overlayController.dismissOverlay()
         searchBarController?.dismiss()
         searchBarController = nil
+        badgeController.dismissBadge()
 
         captures = []
+        offScreenResult = nil
         matchNavigator.updateMatches([])
     }
 
@@ -100,6 +106,31 @@ final class OverlayCoordinator: ObservableObject {
             matches: matches,
             currentIndex: matchNavigator.currentIndex
         )
+
+        // Run accessibility off-screen search in parallel
+        Task {
+            if let axResult = await accessibilityService.getOffScreenMatches(query: query) {
+                offScreenResult = axResult
+                let appFrame = NSWorkspace.shared.frontmostApplication.flatMap { app -> CGRect? in
+                    let axApp = AXUIElementCreateApplication(app.processIdentifier)
+                    var windowRef: CFTypeRef?
+                    guard AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &windowRef) == .success else { return nil }
+                    var positionRef: CFTypeRef?
+                    var sizeRef: CFTypeRef?
+                    AXUIElementCopyAttributeValue(windowRef as! AXUIElement, kAXPositionAttribute as CFString, &positionRef)
+                    AXUIElementCopyAttributeValue(windowRef as! AXUIElement, kAXSizeAttribute as CFString, &sizeRef)
+                    var position = CGPoint.zero
+                    var size = CGSize.zero
+                    AXValueGetValue(positionRef as! AXValue, .cgPoint, &position)
+                    AXValueGetValue(sizeRef as! AXValue, .cgSize, &size)
+                    return CGRect(origin: position, size: size)
+                }
+                badgeController.showBadge(result: axResult, nearAppFrame: appFrame)
+            } else {
+                offScreenResult = nil
+                badgeController.dismissBadge()
+            }
+        }
     }
 
     func navigateNext() {
