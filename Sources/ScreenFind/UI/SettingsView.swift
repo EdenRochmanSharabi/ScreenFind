@@ -5,6 +5,7 @@ struct SettingsView: View {
     @State private var currentKeyCode: Int
     @State private var currentModifiers: UInt64
     @State private var eventMonitor: Any?
+    @State private var launchAtLogin: Bool
 
     init() {
         let keyCode = UserDefaults.standard.object(forKey: "hotkeyKeyCode") as? Int
@@ -13,6 +14,7 @@ struct SettingsView: View {
             ?? HotkeyManager.defaultModifiers
         _currentKeyCode = State(initialValue: keyCode)
         _currentModifiers = State(initialValue: modifiers)
+        _launchAtLogin = State(initialValue: LaunchAtLoginManager.isEnabled)
     }
 
     var body: some View {
@@ -43,10 +45,22 @@ struct SettingsView: View {
             .buttonStyle(.borderless)
             .foregroundColor(.accentColor)
 
+            Divider()
+
+            Toggle("Launch at Login", isOn: $launchAtLogin)
+                .onChange(of: launchAtLogin) { _, newValue in
+                    do {
+                        try LaunchAtLoginManager.setEnabled(newValue)
+                    } catch {
+                        print("[Settings] Failed to set launch at login: \(error)")
+                        launchAtLogin = !newValue
+                    }
+                }
+
             Spacer()
         }
         .padding(24)
-        .frame(width: 360, height: 200)
+        .frame(width: 360, height: 240)
         .onDisappear {
             stopRecording()
         }
