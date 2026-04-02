@@ -35,7 +35,13 @@ final class OCRService {
         )
 
         guard let observations = request.results else {
-            return OCRResult(displayID: capture.displayID, textBlocks: [])
+            return OCRResult(
+                displayID: capture.displayID,
+                textBlocks: [],
+                imageSize: imageSize,
+                screenFrame: capture.frame,
+                scaleFactor: capture.scaleFactor
+            )
         }
 
         let textBlocks: [TextBlock] = observations.compactMap { observation in
@@ -60,6 +66,12 @@ final class OCRService {
             )
         }
 
-        return OCRResult(displayID: capture.displayID, textBlocks: textBlocks)
+        return OCRResult(
+            displayID: capture.displayID,
+            textBlocks: textBlocks,
+            imageSize: imageSize,
+            screenFrame: capture.frame,
+            scaleFactor: capture.scaleFactor
+        )
     }
 }

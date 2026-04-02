@@ -23,4 +23,13 @@ struct OCRResult {
 
     /// All recognized text blocks found on this display.
     let textBlocks: [TextBlock]
+
+    /// The pixel dimensions of the captured image (needed to convert Vision sub-string rects).
+    let imageSize: CGSize
+
+    /// The NSScreen frame in global AppKit coordinates (needed for coordinate conversion).
+    let screenFrame: CGRect
+
+    /// The display backing scale factor (needed for pixel-to-point conversion).
+    let scaleFactor: CGFloat
 }
