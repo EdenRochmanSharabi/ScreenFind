@@ -60,12 +60,16 @@ struct LaunchAtLoginManager {
     }
 
     /// Resolves the path to the running executable.
-    /// Follows symlinks to get the real path so the LaunchAgent survives rebuilds
-    /// only if the binary is installed to a stable location.
+    /// Prefers the .app bundle in ~/Applications if it exists,
+    /// otherwise uses the current executable path.
     private static func resolveExecutablePath() -> String {
+        let appBundlePath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Applications/ScreenFind.app/Contents/MacOS/ScreenFind")
+            .path
+        if FileManager.default.fileExists(atPath: appBundlePath) {
+            return appBundlePath
+        }
         let path = CommandLine.arguments[0]
-        // Resolve symlinks
-        let resolved = (path as NSString).resolvingSymlinksInPath
-        return resolved
+        return (path as NSString).resolvingSymlinksInPath
     }
 }
