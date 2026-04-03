@@ -45,7 +45,7 @@ struct MenuBarView: View {
         let window = NSWindow(contentViewController: hostingController)
         window.title = "ScreenFind Settings"
         window.styleMask = [.titled, .closable]
-        window.setContentSize(NSSize(width: 360, height: 240))
+        window.setContentSize(NSSize(width: 360, height: 280))
         window.center()
         window.makeKeyAndOrderFront(nil)
 

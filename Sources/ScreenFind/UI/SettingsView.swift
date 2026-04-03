@@ -6,6 +6,7 @@ struct SettingsView: View {
     @State private var currentModifiers: UInt64
     @State private var eventMonitor: Any?
     @State private var launchAtLogin: Bool
+    @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
 
     init() {
         let keyCode = UserDefaults.standard.object(forKey: "hotkeyKeyCode") as? Int
@@ -57,10 +58,18 @@ struct SettingsView: View {
                     }
                 }
 
+            Toggle("Show Menu Bar Icon", isOn: $showMenuBarIcon)
+
+            if !showMenuBarIcon {
+                Text("Run `ScreenFind --settings` to reopen this window")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
             Spacer()
         }
         .padding(24)
-        .frame(width: 360, height: 240)
+        .frame(width: 360, height: 280)
         .onDisappear {
             stopRecording()
         }
