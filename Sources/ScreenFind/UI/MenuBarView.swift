@@ -13,12 +13,12 @@ struct MenuBarView: View {
             Divider()
 
             Button("Settings...") {
-                openSettingsWindow()
+                SettingsWindowController.shared.show()
             }
             .keyboardShortcut(",", modifiers: .command)
 
             Button("Permissions...") {
-                openPermissionsWindow()
+                PermissionsWindowController.shared.show()
             }
 
             Divider()
@@ -38,50 +38,49 @@ struct MenuBarView: View {
         return hotkeyDisplayString(keyCode: keyCode, modifiers: modifiers)
     }
 
-    private func openSettingsWindow() {
-        let settingsView = SettingsView()
-        let hostingController = NSHostingController(rootView: settingsView)
-
-        let window = NSWindow(contentViewController: hostingController)
-        window.title = "ScreenFind Settings"
-        window.styleMask = [.titled, .closable]
-        window.setContentSize(NSSize(width: 360, height: 280))
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-
-        // Bring the app to the foreground
-        NSApp.activate()
-
-        // Hold a reference so the window isn't deallocated
-        SettingsWindowController.shared.window = window
-    }
-
-    private func openPermissionsWindow() {
-        let permissionsView = PermissionOnboardingView()
-        let hostingController = NSHostingController(rootView: permissionsView)
-
-        let window = NSWindow(contentViewController: hostingController)
-        window.title = "ScreenFind Permissions"
-        window.styleMask = [.titled, .closable]
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-
-        // Bring the app to the foreground
-        NSApp.activate()
-
-        // Hold a reference so the window isn't deallocated
-        PermissionsWindowController.shared.window = window
-    }
 }
 
-/// Holds a strong reference to the settings window so it stays alive.
+/// Creates the settings window on first use and re-fronts it afterwards.
+/// Holds a strong reference so the window stays alive.
 final class SettingsWindowController {
     static let shared = SettingsWindowController()
     var window: NSWindow?
+
+    func show() {
+        if window == nil {
+            let hostingController = NSHostingController(rootView: SettingsView())
+            let window = NSWindow(contentViewController: hostingController)
+            window.title = "ScreenFind Settings"
+            window.styleMask = [.titled, .closable]
+            // We keep a strong reference; letting AppKit also release on close
+            // would over-release the window.
+            window.isReleasedWhenClosed = false
+            window.setContentSize(NSSize(width: 360, height: 280))
+            window.center()
+            self.window = window
+        }
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+    }
 }
 
-/// Holds a strong reference to the permissions window so it stays alive.
+/// Creates the permissions window on first use and re-fronts it afterwards.
+/// Holds a strong reference so the window stays alive.
 final class PermissionsWindowController {
     static let shared = PermissionsWindowController()
     var window: NSWindow?
+
+    func show() {
+        if window == nil {
+            let hostingController = NSHostingController(rootView: PermissionOnboardingView())
+            let window = NSWindow(contentViewController: hostingController)
+            window.title = "ScreenFind Permissions"
+            window.styleMask = [.titled, .closable]
+            window.isReleasedWhenClosed = false
+            window.center()
+            self.window = window
+        }
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+    }
 }

@@ -1,7 +1,7 @@
 import Cocoa
 
 /// Creates and manages one borderless, screen-covering NSWindow per connected
-/// display to render the dim overlay with search-match highlights.
+/// display to render search-match highlight rings over the live screen.
 final class OverlayWindowController {
 
     // MARK: - Private state
@@ -22,7 +22,6 @@ final class OverlayWindowController {
 
             // Build the content view first.
             let contentView = OverlayContentView(frame: screen.frame)
-            contentView.screenshotImage = capture.image
             contentView.screenOrigin = screen.frame.origin
 
             // Build a borderless, always-on-top window that covers the whole screen.
@@ -35,12 +34,16 @@ final class OverlayWindowController {
             window.level = .screenSaver
             window.isOpaque = false
             window.backgroundColor = .clear
-            window.ignoresMouseEvents = false
+            // Like Spotlight: scrolling and clicking pass through to the apps
+            // beneath. Click-outside-to-dismiss is handled by a global event
+            // monitor in OverlayCoordinator, not by this window.
+            window.ignoresMouseEvents = true
             window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
             window.hasShadow = false
             window.contentView = contentView
 
             window.orderFrontRegardless()
+            print("[Overlay] window for display \(capture.displayID) — frame: \(window.frame), isVisible: \(window.isVisible)")
 
             overlayWindows[capture.displayID] = window
             contentViews[capture.displayID] = contentView
@@ -78,9 +81,7 @@ final class OverlayWindowController {
                 localCurrentIndex = -1
             }
 
-            contentView.matches = screenMatches
-            contentView.currentMatchIndex = localCurrentIndex
-            contentView.setNeedsDisplay(contentView.bounds)
+            contentView.updateHighlights(matches: screenMatches, currentIndex: localCurrentIndex)
         }
     }
 

@@ -79,6 +79,12 @@ struct SettingsView: View {
         isRecording = true
 
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // ESC cancels recording without changing the hotkey
+            if event.keyCode == 53 {
+                stopRecording()
+                return nil
+            }
+
             let keyCode = Int(event.keyCode)
             var modifiers: UInt64 = 0
 

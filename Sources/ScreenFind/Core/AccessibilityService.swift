@@ -22,28 +22,27 @@ final class AccessibilityService {
         let axApp = AXUIElementCreateApplication(pid)
 
         // Find text elements in the AX tree
-        var allText: [(text: String, visibleRange: Range<Int>?, fullLength: Int)] = []
+        var allText: [(text: String, visibleRange: Range<Int>?)] = []
         collectTextElements(from: axApp, depth: 0, maxDepth: 10, results: &allText)
 
         // Count matches above/below visible area
         var above = 0, below = 0
         for element in allText {
-            let matches = countOccurrences(of: query, in: element.text)
-            if matches == 0 { continue }
+            guard countOccurrences(of: query, in: element.text) > 0,
+                  let visibleRange = element.visibleRange else { continue }
 
-            if let visibleRange = element.visibleRange {
-                // Count matches in non-visible portions
-                // Text before visible range
-                if visibleRange.lowerBound > 0 {
-                    let prefix = String(element.text.prefix(visibleRange.lowerBound))
-                    above += countOccurrences(of: query, in: prefix)
-                }
-                // Text after visible range
-                if visibleRange.upperBound < element.fullLength {
-                    let suffix = String(element.text.suffix(element.fullLength - visibleRange.upperBound))
-                    below += countOccurrences(of: query, in: suffix)
-                }
-            }
+            // AXVisibleCharacterRange offsets are UTF-16 code units, so slice via
+            // the utf16 view rather than Character-based prefix/suffix.
+            let text = element.text
+            let utf16 = text.utf16
+            let lowerOffset = min(max(0, visibleRange.lowerBound), utf16.count)
+            let upperOffset = min(max(lowerOffset, visibleRange.upperBound), utf16.count)
+            guard let lower = utf16.index(utf16.startIndex, offsetBy: lowerOffset).samePosition(in: text),
+                  let upper = utf16.index(utf16.startIndex, offsetBy: upperOffset).samePosition(in: text)
+            else { continue }
+
+            above += countOccurrences(of: query, in: String(text[..<lower]))
+            below += countOccurrences(of: query, in: String(text[upper...]))
         }
 
         let total = above + below
@@ -57,7 +56,7 @@ final class AccessibilityService {
         )
     }
 
-    private func collectTextElements(from element: AXUIElement, depth: Int, maxDepth: Int, results: inout [(text: String, visibleRange: Range<Int>?, fullLength: Int)]) {
+    private func collectTextElements(from element: AXUIElement, depth: Int, maxDepth: Int, results: inout [(text: String, visibleRange: Range<Int>?)]) {
         guard depth < maxDepth else { return }
 
         // Try to get role
@@ -72,18 +71,18 @@ final class AccessibilityService {
             if AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef) == .success,
                let text = valueRef as? String, !text.isEmpty {
 
-                // Try to get visible character range
+                // Try to get visible character range (UTF-16 offsets)
                 var visibleRangeRef: CFTypeRef?
                 var visibleRange: Range<Int>? = nil
                 if AXUIElementCopyAttributeValue(element, "AXVisibleCharacterRange" as CFString, &visibleRangeRef) == .success,
-                   let rangeValue = visibleRangeRef {
+                   let rangeValue = visibleRangeRef, CFGetTypeID(rangeValue) == AXValueGetTypeID() {
                     var cfRange = CFRange(location: 0, length: 0)
                     if AXValueGetValue(rangeValue as! AXValue, .cfRange, &cfRange) {
                         visibleRange = cfRange.location..<(cfRange.location + cfRange.length)
                     }
                 }
 
-                results.append((text: text, visibleRange: visibleRange, fullLength: text.count))
+                results.append((text: text, visibleRange: visibleRange))
             }
         }
 

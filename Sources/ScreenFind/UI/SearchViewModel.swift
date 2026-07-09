@@ -18,7 +18,20 @@ final class SearchViewModel: ObservableObject {
         $query
             .removeDuplicates()
             .sink { [weak coordinator] q in
-                coordinator?.query = q
+                if coordinator?.query != q {
+                    coordinator?.query = q
+                }
+            }
+            .store(in: &cancellables)
+
+        // And back: the coordinator clears the query on ESC, and the text
+        // field must reflect it. The inequality checks break the cycle.
+        coordinator.$query
+            .removeDuplicates()
+            .sink { [weak self] q in
+                if self?.query != q {
+                    self?.query = q
+                }
             }
             .store(in: &cancellables)
 
