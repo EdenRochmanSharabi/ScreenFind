@@ -11,12 +11,12 @@ Universal Ctrl+F for macOS. Search for any visible text across all your screens 
 Press **Ctrl+F** from anywhere in macOS and ScreenFind will:
 
 1. Capture all connected screens
-2. Dim the entire display with a dark overlay
-3. Run OCR (Apple Vision framework) to detect all visible text
-4. Show a floating search bar — type to find text in real-time
-5. Highlight matches in-place with glowing rectangles (orange = current, yellow = others)
-6. Navigate between matches with **Up/Down** arrows
-7. Press **ESC** to dismiss
+2. Run OCR (Apple Vision framework) to detect all visible text
+3. Show a Spotlight-style floating search bar — type to find text in real-time
+4. Highlight matches in-place with glowing rings (orange = current, yellow = others)
+5. Track matches live: rings follow text that scrolls or streams
+6. Navigate between matches with the **Up/Down** arrow keys
+7. Press **ESC** to clear (again to dismiss), or click anywhere outside
 
 For the focused app, ScreenFind also reads off-screen text (scrolled content) via the macOS Accessibility API and shows a badge with the count of hidden matches.
 
@@ -60,8 +60,7 @@ Sources/ScreenFind/
                   SearchEngine, MatchNavigator, OverlayCoordinator,
                   AccessibilityService
   Models/       — ScreenCapture, OCRResult, SearchMatch
-  Overlay/      — OverlayWindowController, OverlayContentView,
-                  HighlightRenderer
+  Overlay/      — OverlayWindowController, OverlayContentView
   UI/           — SearchBarContentView, SettingsView, MenuBarView,
                   OffScreenBadgeView
   Permissions/  — PermissionManager, PermissionOnboardingView
@@ -69,7 +68,8 @@ Sources/ScreenFind/
 ```
 
 **Key design decisions:**
-- Screenshots are taken once on activation; OCR runs in the background while the overlay is already visible (~100ms to dim, ~500ms for OCR)
+- The overlay is fully transparent — the screen stays live and scroll/clicks pass through; the capture is used only as OCR input
+- While active, the screen is re-captured and re-OCR'd continuously so highlights follow moving text
 - Search is real-time: OCR results are cached, text matching is sub-millisecond per keystroke
 - Each screen gets its own overlay window at `.screenSaver` level
 - The search bar floats above the overlay in an `NSPanel`

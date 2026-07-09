@@ -19,6 +19,11 @@ struct TextBlock {
     /// the best reading of low-contrast text, a lower-ranked candidate often
     /// contains the correct string — searching them improves recall.
     let candidates: [VNRecognizedText]
+
+    /// The tile of the capture this block was recognized in, in image pixels
+    /// (top-left origin). Vision's normalized boxes are relative to the tile,
+    /// so sub-string boxes must be converted through it.
+    let tileFrame: CGRect
 }
 
 /// OCR results for a single display.

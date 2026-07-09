@@ -20,6 +20,7 @@ final class OverlayCoordinator: ObservableObject {
     private var badgeController = OffScreenBadgeWindowController()
 
     private var captures: [ScreenCapture] = []
+    private var lastOCRResults: [OCRResult] = []
     private var offScreenResult: OffScreenResult?
     private var cancellables = Set<AnyCancellable>()
 
@@ -35,6 +36,11 @@ final class OverlayCoordinator: ObservableObject {
     /// Live tracking: re-captures and re-OCRs the screen while active so
     /// highlights follow text that moves (scrolling, streaming output).
     private var refreshTask: Task<Void, Never>?
+
+    /// Real-time tracking: 30fps motion estimation moves the rings between
+    /// OCR passes so they stick to scrolling text.
+    private let motionTracker = MotionTracker()
+    private let focusedRegion = FocusedRegionStore()
 
     init() {
         // Watch query changes for real-time search
@@ -85,13 +91,28 @@ final class OverlayCoordinator: ObservableObject {
                 searchBarController = SearchBarWindowController(viewModel: viewModel)
                 searchBarController?.show()
 
-                // 4. Run OCR in background
+                // 4. Start real-time motion tracking of the focused window
+                focusedRegion.set(focusedWindowFrame())
+                motionTracker.regionProvider = { [focusedRegion] in focusedRegion.get() }
+                motionTracker.onShift = { [weak self] shift in
+                    self?.applyMotionShift(shift)
+                }
+                if let displayID = NSScreen.main?.displayID ?? captures.first?.displayID {
+                    try? await motionTracker.start(displayID: displayID)
+                }
+                guard isActive else {
+                    motionTracker.stop()
+                    return
+                }
+
+                // 5. Run OCR in background
                 let ocrResults = try await ocrService.recognizeAllScreens(captures)
                 guard isActive else { return }
+                lastOCRResults = ocrResults
                 searchEngine.loadResults(ocrResults)
                 isOCRComplete = true
 
-                // 5. If user already typed something, search now
+                // 6. If user already typed something, search now
                 if !query.isEmpty {
                     performSearch(query: query)
                 }
@@ -103,7 +124,7 @@ final class OverlayCoordinator: ObservableObject {
                     }
                 }
 
-                // 6. Keep tracking: highlights follow text that moves
+                // 7. Keep re-anchoring: fresh OCR corrects the motion tracking
                 startLiveRefresh()
             } catch {
                 print("[OverlayCoordinator] Error: \(error)")
@@ -120,6 +141,7 @@ final class OverlayCoordinator: ObservableObject {
 
         refreshTask?.cancel()
         refreshTask = nil
+        motionTracker.stop()
         removeEscMonitor()
         removeClickMonitor()
 
@@ -161,30 +183,123 @@ final class OverlayCoordinator: ObservableObject {
         }
     }
 
-    /// Continuously re-captures and re-OCRs the screen while the overlay is
-    /// active, so highlight rings follow text that moves (scrolling, streaming
-    /// output). OCR takes ~300-700ms per pass, so the effective refresh rate
-    /// is ~1-2 Hz; the layer animation in OverlayContentView makes the rings
-    /// glide between positions.
+    /// Continuously re-anchors highlights while the overlay is active.
+    ///
+    /// Words that move go to nearby zones, so attention goes there first:
+    /// cheap *focus passes* re-OCR only inflated regions around the current
+    /// matches (~5 Hz), and a *full pass* sweeps the whole screen every 4th
+    /// iteration (~1 Hz) to pick up matches appearing anywhere else. The
+    /// 30fps motion tracker moves the rings between these passes.
     private func startLiveRefresh() {
         refreshTask?.cancel()
         refreshTask = Task { [weak self] in
+            var iteration = 0
             while !Task.isCancelled {
                 guard let self, self.isActive else { return }
                 do {
-                    let newCaptures = try await self.captureService.captureAllScreens()
-                    guard self.isActive, !Task.isCancelled else { return }
-                    let ocrResults = try await self.ocrService.recognizeAllScreens(newCaptures)
-                    guard self.isActive, !Task.isCancelled else { return }
-                    self.captures = newCaptures
-                    self.searchEngine.loadResults(ocrResults)
-                    self.refreshHighlights()
+                    let hasMatches = !self.matchNavigator.matches.isEmpty && !self.query.isEmpty
+                    if hasMatches && iteration % 4 != 0 {
+                        try await self.runFocusPass()
+                    } else {
+                        try await self.runFullPass()
+                    }
                 } catch {
                     print("[Coordinator] live refresh error: \(error)")
                 }
-                try? await Task.sleep(nanoseconds: 250_000_000)
+                iteration += 1
+                try? await Task.sleep(nanoseconds: 100_000_000)
             }
         }
+    }
+
+    /// Full-screen tiled OCR: finds matches anywhere. ~0.5s per pass.
+    private func runFullPass() async throws {
+        let newCaptures = try await captureService.captureAllScreens()
+        guard isActive else { return }
+        let ocrResults = try await ocrService.recognizeAllScreens(newCaptures)
+        guard isActive else { return }
+        captures = newCaptures
+        lastOCRResults = ocrResults
+        searchEngine.loadResults(ocrResults)
+        focusedRegion.set(focusedWindowFrame())
+        refreshHighlights()
+    }
+
+    /// Focus pass: re-OCR only the zones around current matches (inflated for
+    /// expected motion), keeping the rest of the last full pass. ~100-150ms.
+    private func runFocusPass() async throws {
+        let regionsByDisplay = focusRegions(from: matchNavigator.matches)
+        guard !regionsByDisplay.isEmpty else { return }
+        let newCaptures = try await captureService.captureAllScreens()
+        guard isActive else { return }
+
+        var merged: [OCRResult] = []
+        for capture in newCaptures {
+            let imageBounds = CGRect(x: 0, y: 0, width: capture.image.width, height: capture.image.height)
+            guard let previous = lastOCRResults.first(where: { $0.displayID == capture.displayID }) else { continue }
+            let regions = regionsByDisplay[capture.displayID] ?? []
+            guard !regions.isEmpty else {
+                merged.append(previous)
+                continue
+            }
+
+            // Overlay-space regions → image-pixel tile frames
+            let tileFrames = regions.map { region in
+                CGRect(
+                    x: (region.minX - capture.frame.minX) * capture.scaleFactor,
+                    y: (region.minY - capture.frame.minY) * capture.scaleFactor,
+                    width: region.width * capture.scaleFactor,
+                    height: region.height * capture.scaleFactor
+                ).intersection(imageBounds)
+            }.filter { !$0.isEmpty }
+
+            let freshBlocks = try await ocrService.recognizeRegions(tileFrames, in: capture)
+            guard isActive else { return }
+
+            // Fresh blocks replace whatever the previous pass saw in the zones
+            let keptBlocks = previous.textBlocks.filter { block in
+                !regions.contains { $0.intersects(block.screenRect) }
+            }
+            merged.append(OCRResult(
+                displayID: capture.displayID,
+                textBlocks: keptBlocks + freshBlocks,
+                imageSize: CGSize(width: capture.image.width, height: capture.image.height),
+                screenFrame: capture.frame,
+                scaleFactor: capture.scaleFactor
+            ))
+        }
+
+        captures = newCaptures
+        lastOCRResults = merged
+        searchEngine.loadResults(merged)
+        refreshHighlights()
+    }
+
+    /// Zones around the current matches, inflated for expected motion (mostly
+    /// vertical: scrolling), merged when overlapping, per display.
+    private func focusRegions(from matches: [SearchMatch]) -> [CGDirectDisplayID: [CGRect]] {
+        var regions: [CGDirectDisplayID: [CGRect]] = [:]
+        for match in matches {
+            regions[match.displayID, default: []].append(
+                match.screenRect.insetBy(dx: -120, dy: -300)
+            )
+        }
+        for (display, rects) in regions {
+            var mergedRects: [CGRect] = []
+            for rect in rects {
+                if let index = mergedRects.firstIndex(where: { $0.intersects(rect) }) {
+                    mergedRects[index] = mergedRects[index].union(rect)
+                } else {
+                    mergedRects.append(rect)
+                }
+            }
+            // Cap the number of separate OCR crops; beyond that, one big box
+            if mergedRects.count > 3 {
+                mergedRects = [mergedRects.dropFirst().reduce(mergedRects[0]) { $0.union($1) }]
+            }
+            regions[display] = mergedRects
+        }
+        return regions
     }
 
     /// Re-runs the current query against fresh OCR results without touching
@@ -250,8 +365,8 @@ final class OverlayCoordinator: ObservableObject {
     private func installEscMonitor() {
         // Local monitor: ESC always reaches this app because the search panel is key.
         escMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            // keyCode 53 == Escape
-            if event.keyCode == 53 {
+            switch event.keyCode {
+            case 53:  // Escape
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     // Like Spotlight: first ESC clears the query, second dismisses.
@@ -262,8 +377,19 @@ final class OverlayCoordinator: ObservableObject {
                     }
                 }
                 return nil  // consume the event
+            case 126:  // Up arrow — previous match
+                Task { @MainActor [weak self] in
+                    self?.navigatePrevious()
+                }
+                return nil
+            case 125:  // Down arrow — next match
+                Task { @MainActor [weak self] in
+                    self?.navigateNext()
+                }
+                return nil
+            default:
+                return event
             }
-            return event
         }
     }
 
@@ -272,6 +398,53 @@ final class OverlayCoordinator: ObservableObject {
             NSEvent.removeMonitor(monitor)
             escMonitor = nil
         }
+    }
+
+    // MARK: - Real-time motion shift
+
+    /// Applies a motion-estimated shift to the matches inside the focused
+    /// window, keeping rings glued to scrolling content between OCR passes.
+    private func applyMotionShift(_ shift: CGVector) {
+        guard isActive, !matchNavigator.matches.isEmpty else { return }
+        guard let region = focusedRegion.get() else { return }
+
+        let moved = matchNavigator.matches.map { match -> SearchMatch in
+            guard let screenFrame = captures.first(where: { $0.displayID == match.displayID })?.frame else {
+                return match
+            }
+            let overlayRegion = Self.appKitToOverlayRect(region, screenFrame: screenFrame)
+            guard overlayRegion.contains(CGPoint(x: match.screenRect.midX, y: match.screenRect.midY)) else {
+                return match
+            }
+            var rect = match.screenRect
+            rect.origin.x += shift.dx
+            rect.origin.y += shift.dy
+            return SearchMatch(
+                id: match.id,
+                displayID: match.displayID,
+                screenRect: rect,
+                matchedText: match.matchedText,
+                contextText: match.contextText,
+                isOnScreen: match.isOnScreen
+            )
+        }
+        matchNavigator.refreshMatches(moved)
+        overlayController.updateHighlights(
+            matches: moved,
+            currentIndex: matchNavigator.currentIndex,
+            animated: false
+        )
+    }
+
+    /// Converts a rect from AppKit global coordinates (bottom-left origin) to
+    /// the overlay's per-screen-flipped coordinate space.
+    private static func appKitToOverlayRect(_ rect: CGRect, screenFrame: CGRect) -> CGRect {
+        CGRect(
+            x: rect.origin.x,
+            y: 2 * screenFrame.origin.y + screenFrame.height - rect.origin.y - rect.height,
+            width: rect.width,
+            height: rect.height
+        )
     }
 
     // MARK: - Click-outside handling

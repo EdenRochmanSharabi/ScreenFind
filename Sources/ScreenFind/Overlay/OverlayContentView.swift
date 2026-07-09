@@ -33,7 +33,7 @@ final class OverlayContentView: NSView {
 
     /// Replaces the current rings with one per match, animating position
     /// changes so rings follow text that moved between refreshes.
-    func updateHighlights(matches: [SearchMatch], currentIndex: Int) {
+    func updateHighlights(matches: [SearchMatch], currentIndex: Int, animated: Bool = true) {
         // Grow or shrink the layer pool to one layer per match.
         let scale = window?.backingScaleFactor ?? 2.0
         while ringLayers.count < matches.count {
@@ -48,8 +48,14 @@ final class OverlayContentView: NSView {
         }
 
         CATransaction.begin()
-        CATransaction.setAnimationDuration(0.18)
-        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        if animated {
+            CATransaction.setAnimationDuration(0.18)
+            CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        } else {
+            // Motion-tracking updates arrive at 30fps; rings must stick to the
+            // text, not trail behind an easing curve.
+            CATransaction.setDisableActions(true)
+        }
 
         for (index, match) in matches.enumerated() {
             let isCurrent = (index == currentIndex)

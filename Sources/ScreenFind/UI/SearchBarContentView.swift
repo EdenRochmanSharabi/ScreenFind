@@ -95,16 +95,6 @@ struct SearchBarContentView: View {
                     .foregroundColor(.secondary)
                     .font(.system(size: 14))
                     .monospacedDigit()
-
-                Button(action: viewModel.navigateToPrevious) {
-                    Image(systemName: "chevron.up")
-                }
-                .buttonStyle(.borderless)
-
-                Button(action: viewModel.navigateToNext) {
-                    Image(systemName: "chevron.down")
-                }
-                .buttonStyle(.borderless)
             }
         }
         .padding(.horizontal, 20)

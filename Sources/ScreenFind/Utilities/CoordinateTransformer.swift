@@ -46,4 +46,31 @@ struct CoordinateTransformer {
 
         return CGRect(x: globalX, y: globalY, width: pointWidth, height: pointHeight)
     }
+
+    /// Converts a Vision rect normalized within a tile of the capture to a
+    /// rect normalized within the full capture image.
+    /// - Parameters:
+    ///   - tileRect: Normalized bounding box relative to the tile (0..1, bottom-left origin)
+    ///   - tileFrame: The tile's frame in image pixels (top-left origin, as used by CGImage.cropping)
+    ///   - imageSize: The full capture size in pixels
+    static func tileRectToImageRect(
+        _ tileRect: CGRect,
+        tileFrame: CGRect,
+        imageSize: CGSize
+    ) -> CGRect {
+        // Tile's bottom edge measured from the image bottom (Vision is bottom-up)
+        let tileBottomUpY = imageSize.height - tileFrame.maxY
+
+        let pixelX = tileFrame.minX + tileRect.origin.x * tileFrame.width
+        let pixelY = tileBottomUpY + tileRect.origin.y * tileFrame.height
+        let pixelWidth = tileRect.width * tileFrame.width
+        let pixelHeight = tileRect.height * tileFrame.height
+
+        return CGRect(
+            x: pixelX / imageSize.width,
+            y: pixelY / imageSize.height,
+            width: pixelWidth / imageSize.width,
+            height: pixelHeight / imageSize.height
+        )
+    }
 }

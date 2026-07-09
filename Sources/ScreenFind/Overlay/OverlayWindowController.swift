@@ -63,7 +63,9 @@ final class OverlayWindowController {
     /// - Parameters:
     ///   - matches: All current search matches (potentially spanning multiple screens).
     ///   - currentIndex: Index of the focused match in `matches`.
-    func updateHighlights(matches: [SearchMatch], currentIndex: Int) {
+    ///   - animated: Glide rings to new positions (OCR re-anchors) or move
+    ///     them instantly (30fps motion tracking).
+    func updateHighlights(matches: [SearchMatch], currentIndex: Int, animated: Bool = true) {
         for (displayID, contentView) in contentViews {
             // Filter matches that belong to this display.
             let screenMatches = matches.filter { $0.displayID == displayID }
@@ -81,7 +83,7 @@ final class OverlayWindowController {
                 localCurrentIndex = -1
             }
 
-            contentView.updateHighlights(matches: screenMatches, currentIndex: localCurrentIndex)
+            contentView.updateHighlights(matches: screenMatches, currentIndex: localCurrentIndex, animated: animated)
         }
     }
 

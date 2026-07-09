@@ -40,9 +40,15 @@ final class SearchEngine {
                         // Attempt to get a precise sub-string bounding box via Vision.
                         let subRect: CGRect
                         if let box = try? candidate.boundingBox(for: range) {
-                            // box.boundingBox is a normalized Vision rect; convert to screen coords.
-                            subRect = CoordinateTransformer.visionRectToScreenRect(
+                            // box.boundingBox is normalized within the block's
+                            // tile; convert tile → image → screen coords.
+                            let imageRect = CoordinateTransformer.tileRectToImageRect(
                                 box.boundingBox,
+                                tileFrame: block.tileFrame,
+                                imageSize: result.imageSize
+                            )
+                            subRect = CoordinateTransformer.visionRectToScreenRect(
+                                imageRect,
                                 imageSize: result.imageSize,
                                 screenFrame: result.screenFrame,
                                 scaleFactor: result.scaleFactor
@@ -82,6 +88,10 @@ final class SearchEngine {
             }
         }
 
+        // Text in tile-overlap strips is recognized twice; drop matches whose
+        // rects mostly coincide with an already-kept one.
+        matches = Self.dedupOverlapping(matches)
+
         // Sort top-to-bottom, then left-to-right (10 pt tolerance for same-line detection).
         // screenRect.origin.y is flipped within its own screen, so it can't be compared
         // across displays directly; convert to a desktop-global top-down key first.
@@ -106,5 +116,30 @@ final class SearchEngine {
         }
 
         return matches
+    }
+
+    /// Removes matches whose rect mostly coincides with an earlier one on the
+    /// same display (duplicates from tile-overlap strips).
+    private static func dedupOverlapping(_ matches: [SearchMatch]) -> [SearchMatch] {
+        var kept: [SearchMatch] = []
+        for match in matches {
+            let isDuplicate = kept.contains { existing in
+                existing.displayID == match.displayID &&
+                    intersectionOverUnion(existing.screenRect, match.screenRect) > 0.5
+            }
+            if !isDuplicate {
+                kept.append(match)
+            }
+        }
+        return kept
+    }
+
+    private static func intersectionOverUnion(_ a: CGRect, _ b: CGRect) -> CGFloat {
+        let intersection = a.intersection(b)
+        guard !intersection.isNull, !intersection.isEmpty else { return 0 }
+        let intersectionArea = intersection.width * intersection.height
+        let unionArea = a.width * a.height + b.width * b.height - intersectionArea
+        guard unionArea > 0 else { return 0 }
+        return intersectionArea / unionArea
     }
 }
