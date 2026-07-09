@@ -26,6 +26,11 @@ final class OCRService {
 
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
+        request.automaticallyDetectsLanguage = true
+        // Screens are full of code and terminal text; language correction
+        // "fixes" literal tokens (launchctl → real words), which both hides
+        // real matches and invents text that isn't on screen.
+        request.usesLanguageCorrection = false
 
         try handler.perform([request])
 
@@ -45,7 +50,17 @@ final class OCRService {
         }
 
         let textBlocks: [TextBlock] = observations.compactMap { observation in
-            guard let candidate = observation.topCandidates(1).first else {
+            let candidates = observation.topCandidates(3)
+            guard let candidate = candidates.first else {
+                return nil
+            }
+
+            // Very-low-confidence reads are garbage ("launchctl" → "Launchetz"):
+            // they produce phantom matches for text that isn't on screen while
+            // their real text is misread anyway. Drop them. (Dimmed terminal
+            // text sits right at ~0.3, so the threshold can't go higher without
+            // losing real words — the alternate candidates cover the rest.)
+            guard candidate.confidence >= 0.3 else {
                 return nil
             }
 
@@ -62,7 +77,8 @@ final class OCRService {
                 text: candidate.string,
                 screenRect: screenRect,
                 confidence: candidate.confidence,
-                recognizedText: candidate
+                recognizedText: candidate,
+                candidates: candidates
             )
         }
 

@@ -14,6 +14,11 @@ struct TextBlock {
 
     /// The underlying VNRecognizedText, preserved for sub-string bounding box queries.
     let recognizedText: VNRecognizedText
+
+    /// Alternate readings (top candidates, best first). When Vision garbles
+    /// the best reading of low-contrast text, a lower-ranked candidate often
+    /// contains the correct string — searching them improves recall.
+    let candidates: [VNRecognizedText]
 }
 
 /// OCR results for a single display.

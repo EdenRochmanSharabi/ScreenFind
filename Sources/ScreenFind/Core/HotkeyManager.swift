@@ -28,6 +28,7 @@ final class HotkeyManager {
 
         let eventMask: CGEventMask = (1 << CGEventType.keyDown.rawValue)
             | (1 << CGEventType.tapDisabledByTimeout.rawValue)
+            | (1 << CGEventType.tapDisabledByUserInput.rawValue)
 
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -93,8 +94,8 @@ private func hotkeyCallback(
 
     let manager = Unmanaged<HotkeyManager>.fromOpaque(userInfo).takeUnretainedValue()
 
-    // Re-enable the tap if it gets disabled by timeout
-    if type == .tapDisabledByTimeout {
+    // Re-enable the tap if the system disables it (timeout or user input)
+    if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
         if let tap = manager.eventTap {
             CGEvent.tapEnable(tap: tap, enable: true)
         }

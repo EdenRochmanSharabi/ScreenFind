@@ -6,6 +6,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var overlayCoordinator: OverlayCoordinator?  // needs to be accessible from ScreenFindApp
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Line-buffer stdout so prints reach the LaunchAgent log file immediately
+        // (fully-buffered otherwise, since stdout is not a tty).
+        setvbuf(stdout, nil, _IOLBF, 0)
+
         // Hide from Dock (LSUIElement equivalent for SPM executables)
         NSApp.setActivationPolicy(.accessory)
 
@@ -13,7 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--settings") {
             UserDefaults.standard.set(true, forKey: "showMenuBarIcon")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                self.openSettingsWindow()
+                SettingsWindowController.shared.show()
             }
         }
 
@@ -30,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Check permissions
         let perms = PermissionManager.checkAllPermissions()
+        print("[AppDelegate] Permissions — screenRecording: \(perms.screenRecording), accessibility: \(perms.accessibility), inputMonitoring: \(perms.inputMonitoring)")
         if !perms.screenRecording { PermissionManager.requestScreenRecording() }
         if !perms.accessibility { PermissionManager.requestAccessibility() }
         if !perms.inputMonitoring { PermissionManager.requestInputMonitoring() }
@@ -40,19 +45,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             name: .hotkeyDidChange,
             object: nil
         )
-    }
-
-    private func openSettingsWindow() {
-        let settingsView = SettingsView()
-        let hostingController = NSHostingController(rootView: settingsView)
-        let window = NSWindow(contentViewController: hostingController)
-        window.title = "ScreenFind Settings"
-        window.styleMask = [.titled, .closable]
-        window.setContentSize(NSSize(width: 360, height: 280))
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate()
-        SettingsWindowController.shared.window = window
     }
 
     @objc private func hotkeyDidChange(_ notification: Notification) {

@@ -22,48 +22,85 @@ final class SearchEngine {
 
         for result in ocrResults {
             for block in result.textBlocks {
-                var searchRange = block.text.startIndex..<block.text.endIndex
+                // Try each candidate reading (best first): when Vision garbles
+                // the top reading of low-contrast text, an alternate often has
+                // the correct string. Use the first candidate that matches.
+                for candidate in block.candidates {
+                    let text = candidate.string
+                    var searchRange = text.startIndex..<text.endIndex
+                    var foundInCandidate = false
 
-                while let range = block.text.range(
-                    of: query,
-                    options: [.caseInsensitive, .diacriticInsensitive],
-                    range: searchRange
-                ) {
-                    // Attempt to get a precise sub-string bounding box via Vision.
-                    let subRect: CGRect
-                    if let box = try? block.recognizedText.boundingBox(for: range) {
-                        // box.boundingBox is a normalized Vision rect; convert to screen coords.
-                        subRect = CoordinateTransformer.visionRectToScreenRect(
-                            box.boundingBox,
-                            imageSize: result.imageSize,
-                            screenFrame: result.screenFrame,
-                            scaleFactor: result.scaleFactor
+                    while let range = text.range(
+                        of: query,
+                        options: [.caseInsensitive, .diacriticInsensitive],
+                        range: searchRange
+                    ) {
+                        foundInCandidate = true
+
+                        // Attempt to get a precise sub-string bounding box via Vision.
+                        let subRect: CGRect
+                        if let box = try? candidate.boundingBox(for: range) {
+                            // box.boundingBox is a normalized Vision rect; convert to screen coords.
+                            subRect = CoordinateTransformer.visionRectToScreenRect(
+                                box.boundingBox,
+                                imageSize: result.imageSize,
+                                screenFrame: result.screenFrame,
+                                scaleFactor: result.scaleFactor
+                            )
+                        } else {
+                            // Fallback: Vision couldn't produce a sub-range box.
+                            // Estimate it from the character position within the
+                            // block — far tighter than highlighting the whole block.
+                            let total = max(text.count, 1)
+                            let startFraction = CGFloat(text.distance(from: text.startIndex, to: range.lowerBound)) / CGFloat(total)
+                            let lengthFraction = CGFloat(text.distance(from: range.lowerBound, to: range.upperBound)) / CGFloat(total)
+                            let blockRect = block.screenRect
+                            subRect = CGRect(
+                                x: blockRect.origin.x + startFraction * blockRect.width,
+                                y: blockRect.origin.y,
+                                width: max(lengthFraction * blockRect.width, 8),
+                                height: blockRect.height
+                            )
+                        }
+
+                        let match = SearchMatch(
+                            id: UUID(),
+                            displayID: result.displayID,
+                            screenRect: subRect,
+                            matchedText: String(text[range]),
+                            contextText: text,
+                            isOnScreen: true
                         )
-                    } else {
-                        // Fallback: highlight the entire text block.
-                        subRect = block.screenRect
+                        matches.append(match)
+
+                        // Advance past this match to find subsequent occurrences.
+                        searchRange = range.upperBound..<text.endIndex
                     }
 
-                    let match = SearchMatch(
-                        id: UUID(),
-                        displayID: result.displayID,
-                        screenRect: subRect,
-                        matchedText: String(block.text[range]),
-                        contextText: block.text,
-                        isOnScreen: true
-                    )
-                    matches.append(match)
-
-                    // Advance past this match to find overlapping / subsequent occurrences.
-                    searchRange = range.upperBound..<block.text.endIndex
+                    if foundInCandidate { break }
                 }
             }
         }
 
         // Sort top-to-bottom, then left-to-right (10 pt tolerance for same-line detection).
+        // screenRect.origin.y is flipped within its own screen, so it can't be compared
+        // across displays directly; convert to a desktop-global top-down key first.
+        var screenFrames: [CGDirectDisplayID: CGRect] = [:]
+        for result in ocrResults {
+            screenFrames[result.displayID] = result.screenFrame
+        }
+        func topDownY(_ match: SearchMatch) -> CGFloat {
+            guard let frame = screenFrames[match.displayID] else {
+                return match.screenRect.origin.y
+            }
+            // AppKit global Y of the rect's top edge; negate so smaller = higher on screen
+            return -(2 * frame.origin.y + frame.height - match.screenRect.origin.y)
+        }
         matches.sort { a, b in
-            if abs(a.screenRect.origin.y - b.screenRect.origin.y) > 10 {
-                return a.screenRect.origin.y < b.screenRect.origin.y
+            let ya = topDownY(a)
+            let yb = topDownY(b)
+            if abs(ya - yb) > 10 {
+                return ya < yb
             }
             return a.screenRect.origin.x < b.screenRect.origin.x
         }
