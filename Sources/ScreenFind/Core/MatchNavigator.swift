@@ -27,6 +27,15 @@ final class MatchNavigator: ObservableObject {
         currentIndex = 0
     }
 
+    /// Replace the match list from a live refresh of the same query, keeping
+    /// the user's position instead of jumping back to the first match.
+    func refreshMatches(_ newMatches: [SearchMatch]) {
+        matches = newMatches
+        if currentIndex >= newMatches.count {
+            currentIndex = max(0, newMatches.count - 1)
+        }
+    }
+
     /// Advance to the next match, wrapping around from the last to the first.
     func navigateNext() {
         guard !matches.isEmpty else { return }

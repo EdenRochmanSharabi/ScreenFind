@@ -5,6 +5,9 @@ final class OffScreenBadgeWindowController {
     private var aboveWindow: NSWindow?
     private var belowWindow: NSWindow?
 
+    /// Shows "N more matches above/below" badges near the app window.
+    /// - Parameter nearAppFrame: The frontmost window's frame in AppKit global
+    ///   coordinates (bottom-left origin). Falls back to the main screen.
     func showBadge(result: OffScreenResult, nearAppFrame: CGRect?) {
         dismissBadge()
 
@@ -52,6 +55,7 @@ final class OffScreenBadgeWindowController {
         window.hasShadow = true
         window.ignoresMouseEvents = true
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.isReleasedWhenClosed = false
 
         // Size to fit content
         let size = hostingController.view.fittingSize
@@ -59,7 +63,9 @@ final class OffScreenBadgeWindowController {
             NSRect(x: position.x - size.width / 2, y: position.y - size.height / 2, width: size.width, height: size.height),
             display: true
         )
-        window.makeKeyAndOrderFront(nil)
+        // Must not become key: stealing key status from the search panel would
+        // interrupt typing.
+        window.orderFrontRegardless()
 
         return window
     }

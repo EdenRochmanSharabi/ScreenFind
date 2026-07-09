@@ -11,6 +11,11 @@ final class ScreenCaptureService {
             onScreenWindowsOnly: true
         )
 
+        // Exclude our own windows (overlay rings, search bar, badges): the live
+        // refresh loop would otherwise OCR our own UI and match against it.
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        let ownWindows = content.windows.filter { $0.owningApplication?.processID == ownPID }
+
         var captures: [ScreenCapture] = []
 
         for display in content.displays {
@@ -24,12 +29,12 @@ final class ScreenCaptureService {
 
             let scaleFactor = screen.backingScaleFactor
 
-            // Create a filter that captures the entire display (excluding no windows)
-            let filter = SCContentFilter(display: display, excludingWindows: [])
+            // Capture the entire display, minus ScreenFind's own windows
+            let filter = SCContentFilter(display: display, excludingWindows: ownWindows)
 
             let config = SCStreamConfiguration()
-            config.width = Int(display.width) * Int(scaleFactor)
-            config.height = Int(display.height) * Int(scaleFactor)
+            config.width = Int((CGFloat(display.width) * scaleFactor).rounded())
+            config.height = Int((CGFloat(display.height) * scaleFactor).rounded())
             config.showsCursor = false
             config.captureResolution = .best
 
